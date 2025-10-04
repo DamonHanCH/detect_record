@@ -1,25 +1,25 @@
-[INTRODUCTION]
-Based on a personal computer and a camera, it uses a detection model to identify the category of interest, automatically records and saves it as a local video, and simultaneously sends real-time images to the local area network (LAN) for easy viewing.
-modelя╝Ъhttps://docs.ultralytics.com/zh/models/yolo-world/
+# [INTRODUCTION]
+- Based on a personal computer and a camera, it uses a detection model to identify the category of interest, automatically records and saves it as a local video, and simultaneously sends real-time images to the local area network (LAN) for easy viewing.
+- Model: ttps://docs.ultralytics.com/zh/models/yolo-world/
 
-[config]
-"RECORD_DIR": Path for saving recorded videos; it will be created automatically if it does not exist
-".pt_MODEL":  Path to the model file
-"TARGET_CLASS_ID": Class ID of the target category of interest in the model
-"Capture_index": Device number of the camera
-"Capture_WIDTH": Width of the image captured by the camera
-"Capture_HEIGHT": Height of the image captured by the camera
-"DETECTION_INTERVAL": Number of frames between each detection; detection cannot be performed on every frame as it would take too much time
-"STOP_CONSECUTIVE_NO_DETECT": Stop recording if the target of interest is not detected in consecutive detections
-"FIXED_FPS": Frame rate of the recording
-"end": Unused
+## [config.json]
+- **RECORD_DIR**: Path for saving recorded videos; it will be created automatically if it does not exist
+- **.pt_MODEL**:  Path to the model file
+- **TARGET_CLASS_ID**: Class ID of the target category of interest in the model
+- **Capture_index**: Device number of the camera
+- **Capture_WIDTH**: Width of the image captured by the camera
+- **Capture_HEIGHT**: Height of the image captured by the camera
+- **DETECTION_INTERVAL**: Number of frames between each detection; detection cannot be performed on every frame as it would take too much time
+- **STOP_CONSECUTIVE_NO_DETECT**: Stop recording if the target of interest is not detected in consecutive detections
+- **FIXED_FPS**": Frame rate of the recording
+- **end**: Unused
 
-[RUN]
-#install requirements
+## [RUN]
+- install requirements
 	please execute command: pip install -r requirements.txt
-#config
+- config
 	please edit config.json
-#run
+- run
 	please execute command: python main.py
-#check
+- check
 	After checking the IP of your personal computer (assuming it is 192.168.0.104), open the following on your local area network: http://192.168.0.104:5000
