@@ -1,0 +1,12 @@
+{
+  "RECORD_DIR": "./record",
+  ".pt_MODEL": "./yolov8l-world.pt",
+  "TARGET_CLASS_ID": 15,
+  "Capture_index": 0,
+  "Capture_WIDTH": 1920,
+  "Capture_HEIGHT": 1080,
+  "DETECTION_INTERVAL": 25,
+  "STOP_CONSECUTIVE_NO_DETECT": 20,
+  "FIXED_FPS": 25,
+  "isStudent": false
+}

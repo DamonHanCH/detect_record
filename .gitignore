@@ -1,0 +1,21 @@
+# Python 相关
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+.venv/
+
+
+# 日志文件
+*.log
+
+# IDE 配置
+.idea/
+.vscode/
+
+# 视频/图片等大文件（如果工程包含，建议不上传，用说明文档指引用户自己生成）
+*.avi
+*.jpg
+record/
