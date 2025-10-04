@@ -1,8 +1,8 @@
-# [INTRODUCTION]
+# INTRODUCTION
 - Based on a personal computer and a camera, it uses a detection model to identify the category of interest, automatically records and saves it as a local video, and simultaneously sends real-time images to the local area network (LAN) for easy viewing.
-- Model: https://docs.ultralytics.com/zh/models/yolo-world/
+- **Model**: https://docs.ultralytics.com/zh/models/yolo-world/
 
-## [config.json]
+# config.json
 - **RECORD_DIR**: Path for saving recorded videos; it will be created automatically if it does not exist
 - **.pt_MODEL**:  Path to the model file
 - **TARGET_CLASS_ID**: Class ID of the target category of interest in the model
@@ -11,10 +11,10 @@
 - **Capture_HEIGHT**: Height of the image captured by the camera
 - **DETECTION_INTERVAL**: Number of frames between each detection; detection cannot be performed on every frame as it would take too much time
 - **STOP_CONSECUTIVE_NO_DETECT**: Stop recording if the target of interest is not detected in consecutive detections
-- **FIXED_FPS**": Frame rate of the recording
+- **FIXED_FPS**: Frame rate of the recording
 - **end**: Unused
 
-## [RUN]
+# RUN
 - install requirements
 	please execute command: pip install -r requirements.txt
 - config
