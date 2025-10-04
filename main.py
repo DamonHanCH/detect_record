@@ -86,14 +86,10 @@ def main():
 
     # Load YOLOv8-world model
     model = YOLO(config.get(".pt_MODEL"))
-
-    # Get all classes supported by the model (returns a dictionary: {Class ID: Class Name})
     class_names = model.names
 
-    # Print all detection classes
-    print("Detection classes supported by the model:"")
     for class_id, class_name in class_names.items():
-        print(f"Class ID: {class_id} → Class Name: {class_name}")
+        print(f"ID: {class_id} → name: {class_name}")
 
     # Open camera
     cap = cv2.VideoCapture(config.get("Capture_index"))
