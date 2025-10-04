@@ -1,6 +1,6 @@
 [INTRODUCTION]
 Based on a personal computer and a camera, it uses a detection model to identify the category of interest, automatically records and saves it as a local video, and simultaneously sends real-time images to the local area network (LAN) for easy viewing.
-model：https://docs.ultralytics.com/zh/models/yolo-world/
+modelя╝Ъhttps://docs.ultralytics.com/zh/models/yolo-world/
 
 [config]
 "RECORD_DIR": Path for saving recorded videos; it will be created automatically if it does not exist
@@ -21,3 +21,5 @@ model：https://docs.ultralytics.com/zh/models/yolo-world/
 	please edit config.json
 #run
 	please execute command: python main.py
+#check
+	After checking the IP of your personal computer (assuming it is 192.168.0.104), open the following on your local area network: http://192.168.0.104:5000

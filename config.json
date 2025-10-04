@@ -8,5 +8,5 @@
   "DETECTION_INTERVAL": 25,
   "STOP_CONSECUTIVE_NO_DETECT": 20,
   "FIXED_FPS": 25,
-  "isStudent": false
+  "end": false
 }
