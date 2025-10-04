@@ -1,6 +1,6 @@
 # [INTRODUCTION]
 - Based on a personal computer and a camera, it uses a detection model to identify the category of interest, automatically records and saves it as a local video, and simultaneously sends real-time images to the local area network (LAN) for easy viewing.
-- Model: ttps://docs.ultralytics.com/zh/models/yolo-world/
+- Model: https://docs.ultralytics.com/zh/models/yolo-world/
 
 ## [config.json]
 - **RECORD_DIR**: Path for saving recorded videos; it will be created automatically if it does not exist
