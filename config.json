@@ -5,10 +5,6 @@
   "RECORD_DIR": "G:/record",
   "FIXED_FPS": 25,
   "MODEL_PATH": "./yolov8l-world.pt",
-  "Capture_index1": 0,
-  "Capture_WIDTH1": 1920,
-  "Capture_HEIGHT1": 1080,
-  "Capture_index2": 1,
-  "Capture_WIDTH2": 1920,
-  "Capture_HEIGHT2": 1080
+  "Capture_WIDTH": 1920,
+  "Capture_HEIGHT": 1080
 }
