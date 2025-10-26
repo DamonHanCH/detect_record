@@ -1,337 +1,139 @@
 import cv2
-import os
 import time
-from datetime import datetime
-from ultralytics import YOLO
-import torch
-from flask import Flask, Response, render_template_string
-import threading
-import numpy as np
-import json
+import os
 import argparse
+from ultralytics import YOLO
 
-
-# Added: Flask app initialization
-app = Flask(__name__)
-# Global variable to store the latest frame
-latest_frame = None
-lock = threading.Lock()
-
-# Added: FPS statistics
-fps_stats = {
-    "current_fps": 0,
-    "average_fps": 0,
-    "frame_count": 0,
-    "start_time": time.time(),
-    "fps_history": []  # Store recent FPS values for smoothing
-}
-fps_lock = threading.Lock()
-
-# Added: Video stream page template with FPS display
-HTML_TEMPLATE = """
-<html>
-<head>
-    <title>Monitoring Screen - Camera {{ camera_index }}</title>
-    <style>
-        body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f0f0f0; }
-        .video-container { border: 5px solid #333; border-radius: 10px; padding: 20px; background: white; }
-        .fps-info { margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px; }
-    </style>
-</head>
-<body>
-    <div class="video-container">
-        <h1>Monitoring Screen - Camera {{ camera_index }}</h1>
-        <img src="/video_feed" style="max-width: 100%; height: auto;">
-        <div class="fps-info">
-            <h3>Frame Rate Statistics</h3>
-            <p>Current FPS: <span id="current-fps">0</span></p>
-            <p>Average FPS: <span id="average-fps">0</span></p>
-            <p>Total Frames: <span id="total-frames">0</span></p>
-        </div>
-    </div>
+def record_on_detection(
+    model_path="yolov8l-world.pt",
+    output_dir="recordings",
+    camera_index=0,
+    resolution=(1920, 1080),
+    base_duration=20,  # 基础录制时长（秒）
+    target_fps=30,
+    conf_threshold=0.5
+):
+    os.makedirs(output_dir, exist_ok=True)
+    print(f"Videos will be saved to: {os.path.abspath(output_dir)}")
     
-    <script>
-        function updateFPS() {
-            fetch('/fps_stats')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('current-fps').textContent = data.current_fps.toFixed(2);
-                    document.getElementById('average-fps').textContent = data.average_fps.toFixed(2);
-                    document.getElementById('total-frames').textContent = data.frame_count;
-                })
-                .catch(error => console.error('Error fetching FPS data:', error));
-        }
-        
-        // Update FPS every second
-        setInterval(updateFPS, 1000);
-        // Initial update
-        updateFPS();
-    </script>
-</body>
-</html>
-"""
-
-
-# Added: Generate video stream
-def generate_frames():
-    global latest_frame, lock
-    while True:
-        with lock:
-            if latest_frame is None:
-                continue
-            # Convert to JPEG format
-            ret, buffer = cv2.imencode('.jpg', latest_frame)
-            frame = buffer.tobytes()
-
-        # Transmit in MJPEG format
-        yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-
-# Added: Route definition
-@app.route('/')
-def index():
-    return render_template_string(HTML_TEMPLATE, camera_index=camera_index)
-
-
-@app.route('/video_feed')
-def video_feed():
-    return Response(generate_frames(),
-                    mimetype='multipart/x-mixed-replace; boundary=frame')
-
-
-# Added: FPS statistics route
-@app.route('/fps_stats')
-def get_fps_stats():
-    with fps_lock:
-        return {
-            "current_fps": fps_stats["current_fps"],
-            "average_fps": fps_stats["average_fps"],
-            "frame_count": fps_stats["frame_count"]
-        }
-
-
-# Added: Function to update FPS statistics
-def update_fps_stats():
-    global fps_stats
-    with fps_lock:
-        current_time = time.time()
-        elapsed_time = current_time - fps_stats["start_time"]
-        
-        # Calculate current FPS (frames per second)
-        if elapsed_time > 0:
-            current_fps = fps_stats["frame_count"] / elapsed_time
-        else:
-            current_fps = 0
-        
-        # Add to history and keep only last 10 values
-        fps_stats["fps_history"].append(current_fps)
-        if len(fps_stats["fps_history"]) > 10:
-            fps_stats["fps_history"].pop(0)
-        
-        # Calculate smoothed average FPS
-        if fps_stats["fps_history"]:
-            fps_stats["average_fps"] = sum(fps_stats["fps_history"]) / len(fps_stats["fps_history"])
-        
-        fps_stats["current_fps"] = current_fps
-
-
-# Added: Function to draw FPS information on frame
-def draw_fps_info(frame, camera_index):
-    with fps_lock:
-        current_fps = fps_stats["current_fps"]
-        average_fps = fps_stats["average_fps"]
-        frame_count = fps_stats["frame_count"]
-    
-    # Create FPS info text
-    fps_text = f"Cam{camera_index} - FPS: {current_fps:.1f} (Avg: {average_fps:.1f}) - Frames: {frame_count}"
-    
-    # Draw background rectangle for better text visibility
-    text_size = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-    cv2.rectangle(frame, (10, 10), (20 + text_size[0], 40), (0, 0, 0), -1)
-    
-    # Draw FPS text
-    cv2.putText(frame, fps_text, (15, 30), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-    
-    return frame
-
-
-def main(cap_index, flask_port):
-    global camera_index
-    camera_index = cap_index  # Make camera_index available globally for the template
-    
-    print(torch.cuda.is_available())  # Output True means GPU is available
-    print(torch.__version__)
-
-    # Open JSON file
-    with open('config.json', 'r', encoding='utf-8') as file:
-        # Read and parse the file
-        config = json.load(file)
-
-    # Macro definitions
-    DETECTION_INTERVAL = config.get("DETECTION_INTERVAL")  # Detect once every 25 frames
-    STOP_CONSECUTIVE_NO_DETECT = config.get("STOP_CONSECUTIVE_NO_DETECT")  # Stop recording if no detection for 20 consecutive times
-
-    # Configuration parameters
-    TARGET_CLASS_ID = config.get("TARGET_CLASS_ID")  # Target class ID
-    RECORD_DIR = config.get("RECORD_DIR")  # Recording save directory
-    FIXED_FPS = config.get("FIXED_FPS")  # Fixed frame rate
-
-    # Create save directory (include cap_index subdirectory)
-    save_dir = os.path.join(RECORD_DIR, str(cap_index))
-    os.makedirs(save_dir, exist_ok=True)
-
-    # Load YOLOv8-world model
-    model = YOLO(config.get("MODEL_PATH"))
-    class_names = model.names
-
-    for class_id, class_name in class_names.items():
-        print(f"ID: {class_id} → name: {class_name}")
-
-    # Open camera
-    cap = cv2.VideoCapture(cap_index)
-    if not cap.isOpened():
-        print(f"Failed to open camera (index: {cap_index}), please check the device!")
+    # 加载模型
+    try:
+        model = YOLO(model_path)
+        print(f"Successfully loaded model: {model_path}")
+    except Exception as e:
+        print(f"Failed to load model: {e}")
         return
 
-    # Set resolution
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, config.get("Capture_WIDTH"))
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config.get("Capture_HEIGHT"))
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    print(f"Camera resolution: {width}x{height}, Recording frame rate: {FIXED_FPS} FPS")
-    print(f"Detection interval: once every {DETECTION_INTERVAL} frames")
-    print(f"Stop condition: no target detected for {STOP_CONSECUTIVE_NO_DETECT} consecutive times")
+    # 配置摄像头（优化缓冲区和帧率）
+    cap = cv2.VideoCapture(camera_index)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, resolution[0])
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, resolution[1])
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # 只缓存最新帧
+    cap.set(cv2.CAP_PROP_FPS, target_fps)
 
-    # Recording control variables
-    is_recording = False
-    consecutive_no_detection = 0
-    out = None
-    start_datetime = None
-    temp_video_path = None
-    frame_counter = 0
-    last_detection_result = False
+    # 获取实际参数并适配帧率
+    actual_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    actual_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    actual_camera_fps = cap.get(cv2.CAP_PROP_FPS)
+    target_fps = min(target_fps, int(actual_camera_fps) if actual_camera_fps > 0 else target_fps)
+    print(f"Camera resolution: {actual_width}x{actual_height}")
+    print(f"Using target FPS: {target_fps} (camera actual: {actual_camera_fps:.1f})")
+    print(f"Recording strategy: 20s base, reset timer if cat re-detected")
 
-    # Added: Start Flask server thread with specified port
-    def run_flask():
-        app.run(host='0.0.0.0', port=flask_port, debug=False, use_reloader=False)
+    # 状态变量
+    is_recording = False  # 是否正在录制
+    out = None  # 视频写入对象
+    start_time_str = ""  # 录制开始时间戳（用于文件名）
+    last_detection_time = 0  # 上次检测时间（控制1秒1次检测）
+    cat_detected = False  # 当前是否检测到猫
+    results = None  # 缓存检测结果
+    remaining_time = 0.0  # 剩余录制时间（核心：动态倒计时）
+    last_frame_time = time.time()  # 上一帧的时间（用于计算时间差）
 
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    print(f"Flask server started (camera index: {cap_index}), access via http://局域网IP:{flask_port}")
+    print("Starting monitoring... (Press 'q' to exit)")
 
-    # Added: FPS update thread
-    def update_fps_periodically():
-        while True:
-            update_fps_stats()
-            time.sleep(1)  # Update FPS stats every second
-    
-    fps_thread = threading.Thread(target=update_fps_periodically, daemon=True)
-    fps_thread.start()
+    while True:
+        # 1. 优先读取帧（最高优先级）
+        ret, frame = cap.read()
+        if not ret:
+            print("Failed to get frame, exiting")
+            break
 
-    try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                print("Failed to get image frame, exiting program")
-                break
+        # 计算当前帧与上一帧的时间差（用于更新倒计时）
+        current_time = time.time()
+        time_elapsed = current_time - last_frame_time
+        last_frame_time = current_time
 
-            frame_counter += 1
-            
-            # Added: Update frame count for FPS calculation
-            with fps_lock:
-                fps_stats["frame_count"] += 1
-            
-            detected = False
-            annotated_frame = frame.copy()  # Initialize annotated frame
+        # 2. 检测逻辑（1秒1次，控制开销）
+        if current_time - last_detection_time >= 1.0:
+            last_detection_time = current_time
+            results = model(frame, classes=[15], conf=conf_threshold, imgsz=480, verbose=False)
+            cat_detected = len(results[0].boxes) > 0
+            # 若检测到猫，重置剩余录制时间为20秒
+            if cat_detected:
+                remaining_time = base_duration  # 核心：重置倒计时
+                print(f"Cat detected at {time.strftime('%H:%M:%S')} - reset timer to 20s")
 
-            # Detect once every DETECTION_INTERVAL frames
-            if frame_counter % DETECTION_INTERVAL == 0:
-                current_time = datetime.now()
-                millisecond = current_time.microsecond // 1000
-                timestamp_str = f"{current_time.year}-{current_time.month:02d}-{current_time.day:02d} " \
-                                f"{current_time.hour:02d}:{current_time.minute:02d}:{current_time.second:02d}.{millisecond:03d}"
-                print("Current detailed timestamp (including milliseconds):", timestamp_str)
-
-                # Object detection
-                results = model(frame, conf=0.3, imgsz=960)
-                detected = any(int(box.cls) == TARGET_CLASS_ID for result in results for box in result.boxes)
-                last_detection_result = detected
-                annotated_frame = results[0].plot()  # Draw detection results
-            else:
-                detected = last_detection_result
-
-            # Update recording status
-            if frame_counter % DETECTION_INTERVAL == 0:
-                if detected:
-                    consecutive_no_detection = 0
-                    if not is_recording:
-                        start_datetime = datetime.now()
-                        start_str = start_datetime.strftime("%Y%m%d_%H%M%S")
-                        temp_video_path = os.path.join(save_dir, f"temp_{start_str}.avi")
-                        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-                        out = cv2.VideoWriter(temp_video_path, fourcc, FIXED_FPS, (width, height))
-                        if out.isOpened():
-                            is_recording = True
-                            print(f"Start recording (start time: {start_datetime.strftime('%Y-%m-%d %H:%M:%S')})")
-                        else:
-                            print(f"Failed to create recording file: {temp_video_path}")
-                            start_datetime = None
-                            temp_video_path = None
-                else:
-                    if is_recording:
-                        consecutive_no_detection += 1
-                        print(f"Number of consecutive no-detection: {consecutive_no_detection}/{STOP_CONSECUTIVE_NO_DETECT}")
-
-            # Handle recording
-            if is_recording:
-                out.write(frame)
-                if consecutive_no_detection >= STOP_CONSECUTIVE_NO_DETECT:
-                    end_datetime = datetime.now()
-                    end_str = end_datetime.strftime("%Y%m%d_%H%M%S")
-                    out.release()
-                    final_video_name = f"recording_{start_datetime.strftime('%Y%m%d_%H%M%S')}_{end_str}.avi"
-                    final_video_path = os.path.join(save_dir, final_video_name)
-                    os.rename(temp_video_path, final_video_path)
-                    is_recording = False
-                    consecutive_no_detection = 0
-                    print(f"Stop recording (end time: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')})")
-                    print(f"Recording saved as: {final_video_name}")
-
-            # Added: Draw FPS information on the frame
-            display_frame = annotated_frame.copy()
-            display_frame = draw_fps_info(display_frame, cap_index)
-
-            # Update the latest frame for mobile viewing
-            with lock:
-                global latest_frame
-                latest_frame = display_frame
-
-            # Local display (commented out by default)
-            # cv2.imshow(f"YOLOv8 Detection (Camera {cap_index})", display_frame)
-
-            if cv2.waitKey(1) & 0xFF == ord('q'):
-                break
-
-    finally:
-        if is_recording and out is not None:
+        # 3. 录制逻辑（基于动态倒计时）
+        # 更新剩余时间（每帧都减，确保精度）
+        if remaining_time > 0:
+            remaining_time -= time_elapsed
+            # 若需要开始录制（从非录制状态进入录制）
+            if not is_recording:
+                is_recording = True
+                start_time_str = time.strftime("%Y%m%d-%H%M%S", time.localtime(current_time))
+                temp_file = os.path.join(output_dir, f"temp_{start_time_str}.mp4")
+                fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                out = cv2.VideoWriter(temp_file, fourcc, target_fps, (actual_width, actual_height))
+                print(f"Start recording (remaining: {remaining_time:.1f}s)")
+            # 写入当前帧（录制中）
+            out.write(frame)
+        # 若倒计时结束且正在录制，停止并保存
+        elif is_recording:
+            is_recording = False
             out.release()
-            if temp_video_path and os.path.exists(temp_video_path):
-                end_datetime = datetime.now()
-                end_str = end_datetime.strftime("%Y%m%d_%H%M%S")
-                final_video_name = f"recording_{start_datetime.strftime('%Y%m%d_%H%M%S')}_{end_str}_interrupted.avi"
-                final_video_path = os.path.join(save_dir, final_video_name)
-                os.rename(temp_video_path, final_video_path)
-                print(f"Program forced to exit, recording saved as: {final_video_name}")
-        cap.release()
-        cv2.destroyAllWindows()
-        print("Program exited")
+            end_time_str = time.strftime("%H%M%S", time.localtime(current_time))
+            final_file = os.path.join(output_dir, f"{start_time_str}-{end_time_str}.mp4")
+            os.rename(temp_file, final_file)
+            print(f"Recording saved to: {final_file} (total duration: {base_duration + (start_time_str != end_time_str)*0:.1f}s)")
 
+        # 4. 显示逻辑（低优先级）
+        display_frame = frame.copy()
+        # 非录制时绘制检测框（录制时专注写入）
+        if not is_recording and cat_detected and results is not None:
+            display_frame = results[0].plot()
+        # 显示剩余录制时间（若正在录制）
+        if is_recording:
+            cv2.putText(display_frame, f"Recording - remaining: {max(0, remaining_time):.1f}s",
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+        else:
+            status = "Cat detected (will record 20s)" if cat_detected else "No cat"
+            cv2.putText(display_frame, status, (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0) if cat_detected else (0, 0, 255), 2)
+        cv2.imshow("Monitoring (q to exit)", display_frame)
+
+        # 退出逻辑
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    # 资源清理
+    cap.release()
+    if out is not None:
+        out.release()
+    cv2.destroyAllWindows()
+    print("Program exited")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Configure camera index and Flask port")
-    parser.add_argument("--cap", type=int, default=0, help="Camera index (default: 0)")
-    parser.add_argument("--port", type=int, default=5000, help="Flask server port (default: 5000)")
+    parser = argparse.ArgumentParser(description="Cat detection recording (reset timer on re-detection)")
+    parser.add_argument("-c", "--camera", type=int, default=0, help="Camera index (default: 0)")
+    parser.add_argument("-o", "--output", type=str, default="recordings", help="Output directory")
+    parser.add_argument("-d", "--duration", type=int, default=20, help="Base recording duration (s, default:20)")
+    parser.add_argument("-f", "--fps", type=int, default=30, help="Target FPS")
     args = parser.parse_args()
-    main(args.cap, args.port)
+
+    record_on_detection(
+        camera_index=args.camera,
+        output_dir=args.output,
+        base_duration=args.duration,
+        target_fps=args.fps
+    )

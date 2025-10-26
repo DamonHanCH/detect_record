@@ -1,4 +1,4 @@
 @echo off
-start python ./main.py --cap 0 --port 5000
-start python ./main.py --cap 1 --port 5001
+start python ./main.py -c 0 -o "G:\record\0" 
+start python ./main.py -c 1 -o "G:\record\1"
 pause
