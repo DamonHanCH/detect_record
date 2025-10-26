@@ -17,21 +17,56 @@ app = Flask(__name__)
 latest_frame = None
 lock = threading.Lock()
 
-# Added: Video stream page template
+# Added: FPS statistics
+fps_stats = {
+    "current_fps": 0,
+    "average_fps": 0,
+    "frame_count": 0,
+    "start_time": time.time(),
+    "fps_history": []  # Store recent FPS values for smoothing
+}
+fps_lock = threading.Lock()
+
+# Added: Video stream page template with FPS display
 HTML_TEMPLATE = """
 <html>
 <head>
-    <title>Monitoring Screen</title>
+    <title>Monitoring Screen - Camera {{ camera_index }}</title>
     <style>
         body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: #f0f0f0; }
-        .video-container { border: 5px solid #333; border-radius: 10px; }
+        .video-container { border: 5px solid #333; border-radius: 10px; padding: 20px; background: white; }
+        .fps-info { margin-top: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px; }
     </style>
 </head>
 <body>
     <div class="video-container">
-        <h1>Monitoring Screen</h1>
+        <h1>Monitoring Screen - Camera {{ camera_index }}</h1>
         <img src="/video_feed" style="max-width: 100%; height: auto;">
+        <div class="fps-info">
+            <h3>Frame Rate Statistics</h3>
+            <p>Current FPS: <span id="current-fps">0</span></p>
+            <p>Average FPS: <span id="average-fps">0</span></p>
+            <p>Total Frames: <span id="total-frames">0</span></p>
+        </div>
     </div>
+    
+    <script>
+        function updateFPS() {
+            fetch('/fps_stats')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('current-fps').textContent = data.current_fps.toFixed(2);
+                    document.getElementById('average-fps').textContent = data.average_fps.toFixed(2);
+                    document.getElementById('total-frames').textContent = data.frame_count;
+                })
+                .catch(error => console.error('Error fetching FPS data:', error));
+        }
+        
+        // Update FPS every second
+        setInterval(updateFPS, 1000);
+        // Initial update
+        updateFPS();
+    </script>
 </body>
 </html>
 """
@@ -56,7 +91,7 @@ def generate_frames():
 # Added: Route definition
 @app.route('/')
 def index():
-    return render_template_string(HTML_TEMPLATE)
+    return render_template_string(HTML_TEMPLATE, camera_index=camera_index)
 
 
 @app.route('/video_feed')
@@ -65,7 +100,67 @@ def video_feed():
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
+# Added: FPS statistics route
+@app.route('/fps_stats')
+def get_fps_stats():
+    with fps_lock:
+        return {
+            "current_fps": fps_stats["current_fps"],
+            "average_fps": fps_stats["average_fps"],
+            "frame_count": fps_stats["frame_count"]
+        }
+
+
+# Added: Function to update FPS statistics
+def update_fps_stats():
+    global fps_stats
+    with fps_lock:
+        current_time = time.time()
+        elapsed_time = current_time - fps_stats["start_time"]
+        
+        # Calculate current FPS (frames per second)
+        if elapsed_time > 0:
+            current_fps = fps_stats["frame_count"] / elapsed_time
+        else:
+            current_fps = 0
+        
+        # Add to history and keep only last 10 values
+        fps_stats["fps_history"].append(current_fps)
+        if len(fps_stats["fps_history"]) > 10:
+            fps_stats["fps_history"].pop(0)
+        
+        # Calculate smoothed average FPS
+        if fps_stats["fps_history"]:
+            fps_stats["average_fps"] = sum(fps_stats["fps_history"]) / len(fps_stats["fps_history"])
+        
+        fps_stats["current_fps"] = current_fps
+
+
+# Added: Function to draw FPS information on frame
+def draw_fps_info(frame, camera_index):
+    with fps_lock:
+        current_fps = fps_stats["current_fps"]
+        average_fps = fps_stats["average_fps"]
+        frame_count = fps_stats["frame_count"]
+    
+    # Create FPS info text
+    fps_text = f"Cam{camera_index} - FPS: {current_fps:.1f} (Avg: {average_fps:.1f}) - Frames: {frame_count}"
+    
+    # Draw background rectangle for better text visibility
+    text_size = cv2.getTextSize(fps_text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+    cv2.rectangle(frame, (10, 10), (20 + text_size[0], 40), (0, 0, 0), -1)
+    
+    # Draw FPS text
+    cv2.putText(frame, fps_text, (15, 30), 
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    
+    return frame
+
+
 def main(cap_index, flask_port):
+    global camera_index
+    camera_index = cap_index  # Make camera_index available globally for the template
+    
     print(torch.cuda.is_available())  # Output True means GPU is available
     print(torch.__version__)
 
@@ -126,6 +221,15 @@ def main(cap_index, flask_port):
     flask_thread.start()
     print(f"Flask server started (camera index: {cap_index}), access via http://局域网IP:{flask_port}")
 
+    # Added: FPS update thread
+    def update_fps_periodically():
+        while True:
+            update_fps_stats()
+            time.sleep(1)  # Update FPS stats every second
+    
+    fps_thread = threading.Thread(target=update_fps_periodically, daemon=True)
+    fps_thread.start()
+
     try:
         while True:
             ret, frame = cap.read()
@@ -134,6 +238,11 @@ def main(cap_index, flask_port):
                 break
 
             frame_counter += 1
+            
+            # Added: Update frame count for FPS calculation
+            with fps_lock:
+                fps_stats["frame_count"] += 1
+            
             detected = False
             annotated_frame = frame.copy()  # Initialize annotated frame
 
@@ -190,13 +299,17 @@ def main(cap_index, flask_port):
                     print(f"Stop recording (end time: {end_datetime.strftime('%Y-%m-%d %H:%M:%S')})")
                     print(f"Recording saved as: {final_video_name}")
 
+            # Added: Draw FPS information on the frame
+            display_frame = annotated_frame.copy()
+            display_frame = draw_fps_info(display_frame, cap_index)
+
             # Update the latest frame for mobile viewing
             with lock:
                 global latest_frame
-                latest_frame = annotated_frame
+                latest_frame = display_frame
 
             # Local display (commented out by default)
-            # cv2.imshow(f"YOLOv8 Detection (Camera {cap_index})", annotated_frame)
+            # cv2.imshow(f"YOLOv8 Detection (Camera {cap_index})", display_frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
